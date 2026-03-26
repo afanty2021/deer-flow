@@ -9,6 +9,13 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ── Load environment variables from .env ──────────────────────────────────────
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    source "$REPO_ROOT/.env"
+    set +a
+fi
+
 # ── Argument parsing ─────────────────────────────────────────────────────────
 
 DEV_MODE=true
@@ -30,7 +37,7 @@ fi
 
 echo "Stopping existing services if any..."
 pkill -f "langgraph dev" 2>/dev/null || true
-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
+pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
 pkill -f "next dev" 2>/dev/null || true
 pkill -f "next-server" 2>/dev/null || true
 nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
@@ -78,6 +85,10 @@ if ! { \
     exit 1
 fi
 
+# ── Auto-upgrade config ──────────────────────────────────────────────────
+
+"$REPO_ROOT/scripts/config-upgrade.sh"
+
 # ── Cleanup trap ─────────────────────────────────────────────────────────────
 
 cleanup() {
@@ -85,9 +96,10 @@ cleanup() {
     echo ""
     echo "Shutting down services..."
     pkill -f "langgraph dev" 2>/dev/null || true
-    pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
+    pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
     pkill -f "next start" 2>/dev/null || true
+    pkill -f "next-server" 2>/dev/null || true
     # Kill nginx using the captured PID first (most reliable),
     # then fall back to pkill/killall for any stray nginx workers.
     if [ -n "${NGINX_PID:-}" ] && kill -0 "$NGINX_PID" 2>/dev/null; then
@@ -109,7 +121,7 @@ trap cleanup INT TERM
 mkdir -p logs
 
 if $DEV_MODE; then
-    LANGGRAPH_EXTRA_FLAGS=""
+    LANGGRAPH_EXTRA_FLAGS="--no-reload"
     GATEWAY_EXTRA_FLAGS="--reload --reload-include='*.yaml' --reload-include='.env'"
 else
     LANGGRAPH_EXTRA_FLAGS="--no-reload"
@@ -117,22 +129,31 @@ else
 fi
 
 echo "Starting LangGraph server..."
-(cd backend && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking $LANGGRAPH_EXTRA_FLAGS > ../logs/langgraph.log 2>&1) &
+# Read log_level from config.yaml, fallback to env var, then to "info"
+CONFIG_LOG_LEVEL=$(grep -m1 '^log_level:' config.yaml 2>/dev/null | awk '{print $2}' | tr -d ' ')
+LANGGRAPH_LOG_LEVEL="${LANGGRAPH_LOG_LEVEL:-${CONFIG_LOG_LEVEL:-info}}"
+(cd backend && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --server-log-level $LANGGRAPH_LOG_LEVEL $LANGGRAPH_EXTRA_FLAGS > ../logs/langgraph.log 2>&1) &
 ./scripts/wait-for-port.sh 2024 60 "LangGraph" || {
     echo "  See logs/langgraph.log for details"
     tail -20 logs/langgraph.log
+    if grep -qE "config_version|outdated|Environment variable .* not found|KeyError|ValidationError|config\.yaml" logs/langgraph.log 2>/dev/null; then
+        echo ""
+        echo "  Hint: This may be a configuration issue. Try running 'make config-upgrade' to update your config.yaml."
+    fi
     cleanup
 }
 echo "✓ LangGraph server started on localhost:2024"
 
 echo "Starting Gateway API..."
-(cd backend && uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 $GATEWAY_EXTRA_FLAGS > ../logs/gateway.log 2>&1) &
+(cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 $GATEWAY_EXTRA_FLAGS > ../logs/gateway.log 2>&1) &
 ./scripts/wait-for-port.sh 8001 30 "Gateway API" || {
     echo "✗ Gateway API failed to start. Last log output:"
     tail -60 logs/gateway.log
     echo ""
     echo "Likely configuration errors:"
     grep -E "Failed to load configuration|Environment variable .* not found|config\.yaml.*not found" logs/gateway.log | tail -5 || true
+    echo ""
+    echo "  Hint: Try running 'make config-upgrade' to update your config.yaml with the latest fields."
     cleanup
 }
 echo "✓ Gateway API started on localhost:8001"

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.lead_agent import agent as lead_agent_module
-from src.config.app_config import AppConfig
-from src.config.model_config import ModelConfig
-from src.config.sandbox_config import SandboxConfig
+from deerflow.agents.lead_agent import agent as lead_agent_module
+from deerflow.config.app_config import AppConfig
+from deerflow.config.model_config import ModelConfig
+from deerflow.config.sandbox_config import SandboxConfig
+from deerflow.config.summarization_config import SummarizationConfig
 
 
 def _make_app_config(models: list[ModelConfig]) -> AppConfig:
     return AppConfig(
         models=models,
-        sandbox=SandboxConfig(use="src.sandbox.local:LocalSandboxProvider"),
+        sandbox=SandboxConfig(use="deerflow.sandbox.local:LocalSandboxProvider"),
     )
 
 
@@ -76,7 +77,7 @@ def test_resolve_model_name_raises_when_no_models_configured(monkeypatch):
 def test_make_lead_agent_disables_thinking_when_model_does_not_support_it(monkeypatch):
     app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
 
-    import src.tools as tools_module
+    import deerflow.tools as tools_module
 
     monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
@@ -135,3 +136,29 @@ def test_build_middlewares_uses_resolved_model_name_for_vision(monkeypatch):
     )
 
     assert any(isinstance(m, lead_agent_module.ViewImageMiddleware) for m in middlewares)
+
+
+def test_create_summarization_middleware_uses_configured_model_alias(monkeypatch):
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_summarization_config",
+        lambda: SummarizationConfig(enabled=True, model_name="model-masswork"),
+    )
+
+    captured: dict[str, object] = {}
+    fake_model = object()
+
+    def _fake_create_chat_model(*, name=None, thinking_enabled, reasoning_effort=None):
+        captured["name"] = name
+        captured["thinking_enabled"] = thinking_enabled
+        captured["reasoning_effort"] = reasoning_effort
+        return fake_model
+
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
+    monkeypatch.setattr(lead_agent_module, "SummarizationMiddleware", lambda **kwargs: kwargs)
+
+    middleware = lead_agent_module._create_summarization_middleware()
+
+    assert captured["name"] == "model-masswork"
+    assert captured["thinking_enabled"] is False
+    assert middleware["model"] is fake_model
