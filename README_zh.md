@@ -1,6 +1,6 @@
 # 🦌 DeerFlow - 2.0
 
-[English](./README.md) | 中文 | [日本語](./README_ja.md) | [Français](./README_fr.md)
+[English](./README.md) | 中文 | [日本語](./README_ja.md) | [Français](./README_fr.md) | [Русский](./README_ru.md)
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](./backend/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](./Makefile)
@@ -46,6 +46,7 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
       - [Sandbox 模式](#sandbox-模式)
       - [MCP Server](#mcp-server)
       - [IM 渠道](#im-渠道)
+      - [LangSmith 链路追踪](#langsmith-链路追踪)
   - [从 Deep Research 到 Super Agent Harness](#从-deep-research-到-super-agent-harness)
   - [核心特性](#核心特性)
     - [Skills 与 Tools](#skills-与-tools)
@@ -242,7 +243,7 @@ channels:
 
   # 可选：所有移动端渠道共用的全局 session 默认值
   session:
-    assistant_id: lead_agent
+    assistant_id: lead_agent  # 也可以填自定义 agent 名；渠道层会自动转换为 lead_agent + agent_name
     config:
       recursion_limit: 100
     context:
@@ -268,18 +269,22 @@ channels:
 
     # 可选：按渠道 / 按用户单独覆盖 session 配置
     session:
-      assistant_id: mobile_agent
+      assistant_id: mobile-agent  # 这里同样支持自定义 agent 名
       context:
         thinking_enabled: false
       users:
         "123456789":
-          assistant_id: vip_agent
+          assistant_id: vip-agent
           config:
             recursion_limit: 150
           context:
             thinking_enabled: true
             subagent_enabled: true
 ```
+
+说明：
+- `assistant_id: lead_agent` 会直接调用默认的 LangGraph assistant。
+- 如果 `assistant_id` 填的是自定义 agent 名，DeerFlow 仍然会走 `lead_agent`，同时把该值注入为 `agent_name`，这样 IM 渠道也会生效对应 agent 的 SOUL 和配置。
 
 在 `.env` 里设置对应的 API key：
 
@@ -329,6 +334,21 @@ FEISHU_APP_SECRET=your_app_secret
 | `/help` | 查看帮助 |
 
 > 没有命令前缀的消息会被当作普通聊天处理。DeerFlow 会自动创建 thread，并以对话方式回复。
+
+#### LangSmith 链路追踪
+
+DeerFlow 内置了 [LangSmith](https://smith.langchain.com) 集成，用于可观测性。启用后，所有 LLM 调用、agent 运行和工具执行都会被追踪，并在 LangSmith 仪表盘中展示。
+
+在 `.env` 文件中添加以下配置：
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=lsv2_pt_xxxxxxxxxxxxxxxx
+LANGSMITH_PROJECT=xxx
+```
+
+Docker 部署时，追踪默认关闭。在 `.env` 中设置 `LANGSMITH_TRACING=true` 和 `LANGSMITH_API_KEY` 即可启用。
 
 ## 从 Deep Research 到 Super Agent Harness
 
