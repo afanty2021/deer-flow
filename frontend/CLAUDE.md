@@ -11,6 +11,42 @@
 
 DeerFlow 前端是一个 Next.js 16 网页界面，提供基于线程的 AI 对话、流式响应、工件预览和任务跟踪功能。它通过 LangGraph SDK 与后端 LangGraph 服务通信。
 
+## 命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `pnpm dev` | 开发服务器，使用 Turbopack (http://localhost:3000) |
+| `pnpm build` | 生产构建 |
+| `pnpm check` | Lint + 类型检查（提交前运行） |
+| `pnpm lint` | 仅 ESLint |
+| `pnpm lint:fix` | ESLint 自动修复 |
+| `pnpm typecheck` | TypeScript 类型检查 (`tsc --noEmit`) |
+| `pnpm start` | 启动生产服务器 |
+
+> 未配置测试框架。
+
+## 架构
+
+```
+Frontend (Next.js) ──▶ LangGraph SDK ──▶ LangGraph Backend (lead_agent)
+                                              ├── Sub-Agents
+                                              └── Tools & Skills
+```
+
+### 数据流
+
+1. 用户输入 → 线程钩子 (`core/threads/hooks.ts`) → LangGraph SDK 流式传输
+2. 流式事件更新线程状态（消息、工件、待办）
+3. TanStack Query 管理服务端状态；localStorage 存储用户设置
+4. 组件订阅线程状态并渲染更新
+
+### 关键模式
+
+- **默认使用服务端组件**，仅在交互式组件上使用 `"use client"`
+- **线程钩子**（`useThreadStream`、`useSubmitThread`、`useThreads`）是主要的 API 接口
+- **LangGraph 客户端**是通过 `core/api/` 中的 `getAPIClient()` 获取的单例
+- **环境变量验证**使用 `@t3-oss/env-nextjs` 和 Zod 模式（`src/env.js`）。使用 `SKIP_ENV_VALIDATION=1` 跳过
+
 ## 模块结构
 
 ```
@@ -116,6 +152,48 @@ make dev
 pnpm build
 pnpm start
 ```
+
+## 代码风格
+
+- **导入顺序**: 强制排序（内置 → 外部 → 内部 → 父级 → 同级），按字母排序，组之间用空行分隔。使用内联类型导入：`import { type Foo }`
+- **未使用的变量**: 前缀为 `_`
+- **类名**: 使用 `@/lib/utils` 中的 `cn()` 处理条件 Tailwind 类
+- **路径别名**: `@/*` 映射到 `src/*`
+- **组件**: `ui/` 和 `ai-elements/` 从注册表生成（Shadcn、MagicUI、React Bits、Vercel AI SDK）—— 不要手动编辑
+
+## 环境变量
+
+后端 API URL 是可选的；默认使用 nginx 代理：
+
+```
+NEXT_PUBLIC_BACKEND_BASE_URL=http://localhost:8001
+NEXT_PUBLIC_LANGGRAPH_BASE_URL=http://localhost:2024
+```
+
+在 `src/env.js` 中定义，使用 Zod 验证：
+
+```typescript
+// 后端 URL（可选，默认通过 nginx 代理）
+NEXT_PUBLIC_BACKEND_BASE_URL: string | undefined;  // 默认: "" (通过 nginx)
+NEXT_PUBLIC_LANGGRAPH_BASE_URL: string;             // 默认: "/api/langgraph"
+
+// 跳过 Docker 构建的验证
+SKIP_ENV_VALIDATION: "true" | "false";
+```
+
+### Next.js 配置 (`next.config.js`)
+
+```javascript
+const config = {
+  devIndicators: false,  // 隐藏开发指示器
+};
+```
+
+### Tailwind 配置 (`tailwind.config.ts`)
+
+使用 Tailwind v4，在 `src/styles/globals.css` 中使用 `@import` 语法。
+
+主题的 CSS 变量在 globals.css 中定义。
 
 ## 核心接口
 
@@ -274,35 +352,6 @@ interface TodoItem {
 }
 ```
 
-## 配置
-
-### 环境变量
-
-在 `src/env.js` 中定义，使用 Zod 验证：
-
-```typescript
-// 后端 URL（可选，默认通过 nginx 代理）
-NEXT_PUBLIC_BACKEND_BASE_URL: string | undefined;  // 默认: "" (通过 nginx)
-NEXT_PUBLIC_LANGGRAPH_BASE_URL: string;             // 默认: "/api/langgraph"
-
-// 跳过 Docker 构建的验证
-SKIP_ENV_VALIDATION: "true" | "false";
-```
-
-### Next.js 配置 (`next.config.js`)
-
-```javascript
-const config = {
-  devIndicators: false,  // 隐藏开发指示器
-};
-```
-
-### Tailwind 配置 (`tailwind.config.ts`)
-
-使用 Tailwind v4，在 `src/styles/globals.css` 中使用 `@import` 语法。
-
-主题的 CSS 变量在 globals.css 中定义。
-
 ## 代码质量
 
 ### 类型检查
@@ -332,27 +381,6 @@ eslint . --ext .ts,.tsx --fix
 pnpm check
 # 运行: lint + typecheck
 ```
-
-## 代码风格
-
-### 导入顺序
-
-强制排序（组之间用空行分隔）：
-1. 内置 (`react`、`next`)
-2. 外部 (`@radix-ui`、`@tanstack`)
-3. 内部 (`@/core`、`@/components`)
-4. 父级 (`../`)
-5. 同级 (`./`)
-
-组内按字母顺序排列。
-
-### 最佳实践
-
-- **使用内联类型导入**: `import { type Foo }`
-- **未使用变量前缀**: `_variable`
-- **类名**: 使用 `@/lib/utils` 的 `cn()` 函数
-- **路径别名**: `@/*` 映射到 `src/*`
-- **不要编辑**: `ui/` 和 `ai-elements/` 是自动生成的
 
 ## 核心功能
 

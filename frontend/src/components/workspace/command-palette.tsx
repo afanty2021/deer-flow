@@ -6,7 +6,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   CommandDialog,
@@ -32,9 +32,14 @@ import { SettingsDialog } from "./settings";
 export function CommandPalette() {
   const { t } = useI18n();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleNewChat = useCallback(() => {
     router.push("/workspace/chats/new");
@@ -63,11 +68,13 @@ export function CommandPalette() {
 
   useGlobalShortcuts(shortcuts);
 
-
-  const isMac =
-    typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+  const isMac = mounted && navigator.userAgent.includes("Mac");
   const metaKey = isMac ? "⌘" : "Ctrl+";
   const shiftKey = isMac ? "⇧" : "Shift+";
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <>
@@ -80,7 +87,10 @@ export function CommandPalette() {
             <CommandItem onSelect={handleNewChat}>
               <MessageSquarePlusIcon className="mr-2 h-4 w-4" />
               {t.sidebar.newChat}
-              <CommandShortcut>{metaKey}{shiftKey}N</CommandShortcut>
+              <CommandShortcut>
+                {metaKey}
+                {shiftKey}N
+              </CommandShortcut>
             </CommandItem>
             <CommandItem onSelect={handleOpenSettings}>
               <SettingsIcon className="mr-2 h-4 w-4" />
